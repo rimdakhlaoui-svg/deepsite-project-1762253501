@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TrackWealth</title>
+  <meta name="description" content="TrackWealth - Suivi dynamique d'un patrimoine diversifié visant 1M€ net. Web + PWA with offline support." />
+  <meta name="theme-color" content="#4a6bff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <!-- Tailwind (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <!-- App Manifest injected dynamically (data URL) -->
+  <script>
+    (function(){
+      const manifest = {
+        "name": "TrackWealth",
+        "short_name": "TW",
+        "start_url": "./",
+        "display": "standalone",
+        "background_color": "#f8f9ff",
+        "description": "TrackWealth - Suivi et gestion d'un patrimoine diversifié pour atteindre 1M€ net.",
+        "icons": [
+          {
+            "src": "data:image/svg+xml;utf8," +
+              encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 100 100"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4a6bff"/><stop offset="100%" stop-color="#ff6b9d"/></linearGradient></defs><rect width="100" height="100" rx="16" fill="url(#g)"/><text x="50" y="58" font-family="Arial" font-size="34" text-anchor="middle" fill="#fff">$</text></svg>'),
+            "sizes": "192x192",
+            "type": "image/svg+xml"
+          },
+          {
+            "src": "data:image/svg+xml;utf8," +
+              encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 100 100"><defs><linearGradient id="grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4a6bff"/><stop offset="100%" stop-color="#ff6b9d"/></linearGradient></defs><circle cx="50" cy="50" r="42" fill="url(#grad)"/><text x="50" y="58" font-family="Arial" font-size="28" text-anchor="middle" fill="#fff">$</text></svg>'),
+            "sizes": "512x512",
+            "type": "image/svg+xml"
+          }
+        ]
+      };
+      const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      let node = document.querySelector('link[rel="manifest"]');
+      if (!node) {
+        node = document.createElement('link');
+        node.rel = 'manifest';
+        document.head.appendChild(node);
+      }
+      node.href = url;
+    })();
+  </script>
+
+  <!-- Inline Service Worker (Blob-based) for offline support -->
+  <script>
+    (function(){
+      if ('serviceWorker' in navigator) {
+        const swCode = `
+          const CACHE = 'tw-cache-v1';
+          const ASSETS = [
+            '/',
+            // Add more assets if needed in the future
+          ];
+          self.addEventListener('install', e => {
+            e.waitUntil((async () => {
+              const cache = await caches.open(CACHE);
+              await cache.addAll(ASSETS);
+            })());
+          });
+          self.addEventListener('fetch', e => {
+            e.respondWith((async () => {
+              const cache = await caches.open(CACHE);
+              const cached = await cache.match(e.request);
+              try {
+                const network = await fetch(e.request);
+                if (network && network.ok) {
+                  cache.put(e.request, network.clone());
+                  return network;
+                }
+              } catch (err) {
+                // ignore
+              }
+              return cached || new Response('Offline', {status: 503, statusText: 'Offline'});
+            })());
+          });
+        `;
+        const blob = new Blob([swCode], {type: 'application/javascript'});
+        const swUrl = URL.createObjectURL(blob);
+        navigator.serviceWorker.register(swUrl).then(()=>{ console.log('Service Worker registered (TrackWealth)'); }).catch(e=> console.error('SW registration failed', e));
+      }
+    })();
+  </script>
+
+  <style>
+    :root{
+      --primary: #4a6bff;
+      --secondary: #7ba6f9;
+      --accent: #ff6b9d;
+      --soft: #ffa5c5;
+      --green: #28a745;
+      --orange: #fd7e14;
+      --red: #dc3545;
+      --bg-grad: linear-gradient(to bottom, #f8f9ff, #e6f0ff);
+    }
+
+    html, body {
+      height: 100%;
+    }
+    body {
+      background: var(--bg-grad);
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      color: #1f2937;
+      margin: 0;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+    body.dark-mode {
+      background: linear-gradient(#0b1020, #0a0e1a);
+      color: #e5e7eb;
+    }
+
+    /* Glass cards */
+    .glass-card {
+      background: rgba(255,255,255,0.75);
+      backdrop-filter: blur(8px);
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,.1);
+      border: 1px solid rgba(255,255,255,.6);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    body.dark-mode .glass-card {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+    .glass-card:hover { transform: scale(1.03); }
+
+    /* Navigation hints / onboarding */
+    .onboard-tip {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,.95);
+      border-radius: 999px;
+      padding: 8px 14px;
+      box-shadow: 0 6px 16px rgba(0,0,0,.15);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      z-index: 50;
+    }
+    body.dark-mode .onboard-tip {
+      background: rgba(15,23,42,.95);
+      color: #e5e7eb;
+    }
+
+    /* Gauges using conic gradient */
+    .gauge {
+      width: 170px;
+      height: 170px;
+      border-radius:50%;
+      background: conic-gradient(var(--grad) var(--p, 0%), #e5e7eb 0);
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position: relative;
+    }
+    .gauge__inner {
+      position: absolute;
+      width: 120px; height: 120px;
+      border-radius: 50%;
+      background: #fff;
+      display:flex; align-items:center; justify-content:center;
+      font-weight: bold;
+      color: #4a6bff;
+    }
+    .dashboard-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    /* Responsive tweaks for mobile-first design */
+    @media (max-width: 900px) {
+      .dashboard-row { grid-template-columns: 1fr; }
+      .gauge { width: 140px; height: 140px; }
+    }
+
+    /* Tiny chart container sizing fix */
+    .chart-container {
+      width: 100%;
+      height: 320px;
+    }
+    canvas { width: 100% !important; height: 280px !important; }
+
+    /* Buttons with hover scale + gradient colors */
+    .btn {
+      border: 0; padding: 0.6rem 1rem; border-radius: 999px; font-weight: 600;
+      background: linear-gradient(90deg, #4a6bff, #7ba6f9);
+      color: white; cursor: pointer; transition: transform .3s ease;
+    }
+    .btn:hover { transform: scale(1.04); }
+    .btn-secondary { background: #e5e7eb; color: #111827; }
+    .btn-rose { background: linear-gradient(90deg, #ff6b9d, #ffa5c5); }
+    .btn-green { background: #28a745; }
+    .btn-orange { background: #fd7e14; }
+
+    /* Tiny modal style for confirm */
+    .modal {
+      position: fixed; top:0; left:0; width:100%; height:100%;
+      display:flex; align-items:center; justify-content:center;
+      background: rgba(0,0,0,.4); z-index: 60;
+    }
+    .modal-card {
+      background: white; border-radius: 12px; padding: 20px; width: min(420px, 90%);
+      box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    }
+    body.dark-mode .modal-card {
+      background: #1f2937; color: #e5e7eb;
+    }
+
+  </style>
+</head>
+<body class="p-0">
+  <!-- Dark mode toggle -->
+  <button id="darkModeToggle" aria-label="Basculer le mode sombre"
+          class="fixed top-4 right-4 z-40 bg-white/70 dark:bg-black/40 p-2 rounded-full shadow-md hover:scale(1.05)"
+  >
+    <i class="fas fa-moon"></i>
+  </button>
+
+  <!-- Onboarding tip (first-run) -->
+  <div id="onboard" class="onboard-tip" style="display:none;">
+    <i class="fas fa-info-circle"></i> Bienvenue sur TrackWealth. Ajoutez vos actifs et commencez la saisie mensuelle dès le 1er octobre 2025.
+  </div>
+
+  <!-- Header -->
+  <header class="p-4 bg-white/70 dark:bg-black/40 backdrop-filter backdrop-blur-lg shadow-sm sticky top-0 z-30">
+    <div class="container mx-auto flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-2xl font-bold" style="background: linear-gradient(90deg, #4a6bff, #ff6b9d); -webkit-background-clip: text; color: transparent;">
+          TrackWealth
+        </span>
+        <span class="text-sm text-gray-500 dark:text-gray-200 ml-2 hidden sm:block">Objectif: 1 000 000 € net</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="notifyBtn" class="btn btn-secondary" title="Activez les rappels (Notifications)">
+          Rappels
+        </button>
+        <button id="resetBtn" class="btn btn-secondary" title="Réinitialiser les données (local)">
+          Réinitialiser
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="container mx-auto px-4 pt-6 pb-12">
+    <!-- Dashboard overview -->
+    <section class="glassy glass-card p-4 mb-6">
+      <div class="dashboard-row">
+        <!-- Net Worth Card -->
+        <div class="glass-card p-5 flex flex-col items-center justify-center text-center">
+          <div class="gauge" id="netWorthGauge" style="--grad: #4a6bff; --p:0;">
+            <div class="gauge__inner" id="netWorthGaugeLabel">0%</div>
+          </div>
+          <div class="mt-4 font-bold text-xl" id="netWorthDisplay">0 € / 1 000 000 €</div>
+          <div class="text-sm text-gray-500" id="netWorthSub">Patrimoine net actuel</div>
+        </div>
+
+        <!-- Monthly evolution -->
+        <div class="glass-card p-5 text-center">
+          <div class="text-sm text-gray-500">Évolution Mensuelle</div>
+          <div id="monthlyEvolution" class="text-3xl font-bold my-2">0%</div>
+          <div class="text-xs text-green-600" id="monthlyEvolutionArrow"></div>
+        </div>
+
+        <!-- Diversification score -->
+        <div class="glass-card p-5 text-center">
+          <div class="text-sm text-gray-500">Diversification</div>
+          <div class="gauge" id="diversifGauge" style="--grad: #28a745; --p:60;">
+            <div class="gauge__inner" id="diversifLabel">60%</div>
+          </div>
+          <div class="mt-2 text-xs" id="diversifNote">Score 0-100</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Asset management -->
+    <section class="glass-card p-5 mb-6">
+      <h2 class="text-xl font-bold mb-3">Saisie et Gestion des Actifs</h2>
+      <form id="assetForm" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="col-span-1 md:col-span-2">
+          <label>Nom de l'actif</label>
+          <input id="assetName" class="w-full p-2 border rounded" placeholder="Nom de l'actif" required />
+        </div>
+        <div>
+          <label>Type d'actif</label>
+          <select id="assetType" class="w-full p-2 border rounded" required>
+            <option value="Immobilier physique net">Immobilier physique net</option>
+            <option value="SCPI">SCPI</option>
+            <option value="Actions">Actions</option>
+            <option value="ETF">ETF</option>
+            <option value="Cryptomonnaies">Cryptomonnaies</option>
+            <option value="Exotique">Exotique</option>
+            <option value="Private Equity">Private Equity</option>
+            <option value="Obligation">Obligation</option>
+            <option value="OR">OR</option>
+            <option value="Autre">Autre</option>
+            <option value="Revenus Passifs">Revenus Passifs</option>
+          </select>
+        </div>
+        <div>
+          <label>Valeur actuelle (€)</label>
+          <input id="assetValue" type="number" min="0" class="w-full p-2 border rounded" required />
+        </div>
+        <div>
+          <label>Valeur cible (€)</label>
+          <input id="assetTargetValue" type="number" min="0" class="w-full p-2 border rounded" required />
+        </div>
+        <div>
+          <label>Date d'acquisition</label>
+          <input id="assetDate" type="date" class="w-full p-2 border rounded" />
+        </div>
+        <div>
+          <label>Rendement annuel estimé (%)</label>
+          <input id="assetYield" type="number" min="0" max="100" class="w-full p-2 border rounded" />
+        </div>
+        <div>
+          <label>Risque estimé</label>
+          <select id="assetRisk" class="w-full p-2 border rounded">
+            <option value="Bas">Bas</option><option value="Moyen">Moyen</option><option value="Haut">Haut</option>
+          </select>
+        </div>
+        <div>
+          <label>Devise</label>
+          <input id="assetCurrency" class="w-full p-2 border rounded" placeholder="EUR" />
+        </div>
+        <div class="col-span-3 flex items-center gap-2">
+          <button type="submit" class="btn">Ajouter Actif</button>
+          <button type="button" id="dupBtn" class="btn btn-rose" style="background: linear-gradient(90deg, #ff6b9d, #ffa5c5);">Dupliquer Actif</button>
+          <button type="button" id="clearBtn" class="btn btn-secondary" style="background:#e5e7eb; color:#111;">Tout supprimer</button>
+        </div>
+      </form>
+
+      <!-- Monthly record button -->
+      <div class="mt-4 flex items-center gap-3">
+        <button id="recordMonthly" class="btn btn-green">Enregistrer valeur mensuelle</button>
+        <span class="text-sm text-gray-500" id="recordNote">Dates: 1er du mois, départ Sept 2025, 1er Oct 2025 pour les mois suivants.</span>
+      </div>
+
+      <!-- Asset list -->
+      <div id="assetList" class="mt-4 grid grid-cols-1 gap-3" aria-live="polite"></div>
+    </section>
+
+    <!-- Immobilier (section dédiée) -->
+    <section class="glass-card p-5 mb-6" id="realEstateSection" style="display:none;">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xl font-bold">Immobilier Physique</h2>
+        <button class="btn" id="addPropertyBtn">Ajouter Bien</button>
+      </div>
+      <div id="realEstateList" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+    </section>
+
+    <!-- Évolution du patrimoine -->
+    <section class="glass-card p-5 mb-6">
+      <h2 class="text-xl font-bold mb-3">Évolution du Patrimoine</h2>
+      <div class="chart-container">
+        <canvas id="evolutionChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Répartition et détails -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="glass-card p-5">
+        <h3 class="font-semibold mb-2">Répartition par catégorie</h3>
+        <canvas id="allocationChart" height="240"></canvas>
+      </div>
+      <div class="glass-card p-5">
+        <h3 class="font-semibold mb-2">Revenus Passifs vs. Dépenses</h3>
+        <canvas id="passiveChart" height="240"></canvas>
+      </div>
+    </section>
+
+    <!-- Historique -->
+    <section class="glass-card p-5 mt-6">
+      <h2 class="text-xl font-bold mb-3">Historique & Log des modifications</h2>
+      <div id="historyList" class="overflow-x-auto" style="max-height:260px; overflow-y:auto;">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50 dark:bg-gray-800">
+            <tr>
+              <th class="px-3 py-2 text-left text-xs font-semibold text-gray-500">Date</th>
+              <th class="px-3 py-2 text-left text-xs font-semibold text-gray-500">Actif</th>
+              <th class="px-3 py-2 text-left text-xs font-semibold text-gray-500">Changement</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody" class="divide-y divide-gray-200"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Instructions PWA -->
+    <section class="glass-card p-5 mt-6 text-sm text-gray-700 dark:text-gray-200">
+      <strong>Installation PWA</strong>:
+      - Sur mobile, appuyez sur "Ajouter à l'écran d'accueil" lorsque la page est affichée.
+      - Pour les navigateurs modernes, l'icône d'installation apparaîtra automatiquement après l'ajout du site en tant que PWA.
+      - Le mode hors-ligne permet de consulter les graphiques et d'enregistrer des valeurs même sans réseau.
+      <br><br>
+      Remarque: Aucune donnée n'est pré-remplie. Votre patrimoine est enregistré localement dans votre navigateur (LocalStorage).
+    </section>
+
+  </main>
+
+  <!-- Simple modal for confirmation (Delete All) -->
+  <div id="confirmModal" class="modal" style="display:none;">
+    <div class="modal-card">
+      <h3 class="font-bold mb-2">Confirmation</h3>
+      <p>Voulez-vous vraiment tout supprimer ? Cette action est irréversible.</p>
+      <div class="mt-4 flex justify-end gap-2">
+        <button id="cancelDelete" class="btn btn-secondary">Annuler</button>
+        <button id="confirmDelete" class="btn btn-orange" style="background:#dc3545;">Supprimer</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Utilities
+    const KEY_ASSETS = 'tw_assets';
+    const KEY_REAL = 'tw_real_estate';
+    const KEY_HISTORY = 'tw_history';
+    const START_DATE = new Date('2025-10-01'); // monthly tracking starts Oct 2025
+
+    // Data stores
+    let assets = JSON.parse(localStorage.getItem(KEY_ASSETS) || '[]');
+    let realEstate = JSON.parse(localStorage.getItem(KEY_REAL) || '[]');
+    let history = JSON.parse(localStorage.getItem(KEY_HISTORY) || '[]'); // {date: 'YYYY-MM-DD', total: number}
+
+    // Elements
+    const assetListEl = document.getElementById('assetList');
+    const assetForm = document.getElementById('assetForm');
+    const assetNameEl = document.getElementById('assetName');
+    const assetTypeEl = document.getElementById('assetType');
+    const assetValueEl = document.getElementById('assetValue');
+    const assetTargetValueEl = document.getElementById('assetTargetValue');
+    const assetDateEl = document.getElementById('assetDate');
+    const assetYieldEl = document.getElementById('assetYield');
+    const assetRiskEl = document.getElementById('assetRisk');
+    const assetCurrencyEl = document.getElementById('assetCurrency');
+    const recordMonthlyBtn = document.getElementById('recordMonthly');
+    const netWorthDisplay = document.getElementById('netWorthDisplay');
+    const netWorthGauge = document.getElementById('netWorthGauge');
+    const netWorthGaugeLabel = document.getElementById('netWorthGaugeLabel');
+    const monthlyEvolutionEl = document.getElementById('monthlyEvolution');
+    const allocationChartCtx = document.getElementById('allocationChart').getContext('2d');
+    const evolutionChartCtx = document.getElementById('evolutionChart').getContext('2d');
+    const passiveChartCtx = document.getElementById('passiveChart').getContext('2d');
+    const DiversifGauge = document.getElementById('diversifGauge');
+    const DiversifLabel = document.getElementById('diversifLabel');
+    const addPropertyBtn = document.getElementById('addPropertyBtn');
+    const realEstateSection = document.getElementById('realEstateSection');
+    const confirmModal = document.getElementById('confirmModal');
+    const cancelDelete = document.getElementById('cancelDelete');
+    const confirmDelete = document.getElementById('confirmDelete');
+    const resetBtn = document.getElementById('resetBtn');
+    const notifyBtn = document.getElementById('notifyBtn');
+    const onBoard = document.getElementById('onboard');
+    const assetDateHint = document.getElementById('recordNote');
+
+    // Charts instances
+    let evolutionChart;
+    let allocationChart;
+    let passiveChart;
+
+    // Initialize
+    (function init(){
+      // Onboarding hint (first run)
+      if (!localStorage.getItem('tw_seen')) {
+        onBoard.style.display = 'block';
+        setTimeout(()=>{ onBoard.style.display = 'none'; }, 7000);
+        localStorage.setItem('tw_seen', '1');
+      }
+
+      // Seed date hints
+      assetDateEl.value = ''; // user will choose
+      renderAssets();
+      renderRealEstate();
+      renderCharts();
+      updateOverview();
+
+      // Dark mode from system
+      if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.body.classList.add('dark-mode');
+      }
+
+      // Check if Notification permission granted
+      if (Notification && Notification.permission === 'default') {
+        // silent; user can enable via Rappels button
+      }
+
+      // Keyboard shortcuts
+      document.addEventListener('keydown', (e)=> {
+        if (e.key === 'Escape') document.body.focus();
+      });
+
+      // Event handlers
+      assetForm.addEventListener('submit', onAddAsset);
+      document.getElementById('dupBtn').addEventListener('click', onDuplicateAsset);
+      document.getElementById('clearBtn').addEventListener('click', openClearModal);
+      recordMonthlyBtnListener();
+      document.getElementById('resetBtn').addEventListener('click', resetAll);
+      document.getElementById('notifyBtn').addEventListener('click', requestNotification);
+      document.getElementById('darkModeToggle').addEventListener('click', toggleDark);
+      addPropertyBtn.addEventListener('click', ()=> realEstateSection.style.display = realEstateSection.style.display === 'none' ? 'block' : 'none');
+    })();
+
+    // Functions
+    function toggleDark(){
+      document.body.classList.toggle('dark-mode');
+    }
+
+    function requestNotification(){
+      if (!('Notification' in window)) return alert('Notifications non supportées dans votre navigateur.');
+      if (Notification.permission === 'granted'){
+        new Notification('Rappels TrackWealth activés', {body: 'Vous recevrez des rappels mensuels pour enregistrer vos valeurs.'});
+        return;
+      }
+      Notification.requestPermission().then(p => {
+        if (p === 'granted') {
+          new Notification('Rappels TrackWealth activés', {body: 'Les rappels mensuels sont activés.'});
+        }
+      });
+    }
+
+    function renderAssets(){
+      assetListEl.innerHTML = '';
+      if (assets.length === 0){
+        assetListEl.innerHTML = `<div class="text-sm text-gray-500">Aucun actif enregistré. Utilisez le formulaire ci-dessus pour ajouter votre premier actif.</div>`;
+        return;
+      }
+      assets.forEach((a, idx) => {
+        const latest = a.history && a.history.length ? a.history[a.history.length-1].value : a.value || 0;
+        const card = document.createElement('div');
+        card.className = 'glass-card p-3 flex items-center justify-between';
+        card.innerHTML = `
+          <div class="flex items-center gap-3">
+            <div class="w-6 h-6 rounded-full" style="background:${typeColor(a.type)}"></div>
+            <div>
+              <div class="font-semibold">${escapeHtml(a.name)}</div>
+              <div class="text-xs text-gray-500">${escapeHtml(a.type)} • ${a.currency || '€'}</div>
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="text-sm font-semibold">${formatEuro(latest)}</div>
+            <div class="text-xs text-gray-500">Cible: ${formatEuro(a.targetValue || 0)} • ${formatPercent(a.targetPct || 0)}</div>
+          </div>
+        `;
+        // Inline actions
+        const actions = document.createElement('div');
+        actions.innerHTML = `
+          <button class="btn btn-secondary" onclick="editAsset('${a.id}')"><i class="fas fa-edit"></i> Edit</button>
+          <button class="btn btn-rose" onclick="duplicateAsset('${a.id}')"><i class="fas fa-copy"></i> Dupliquer</button>
+          <button class="btn" onclick="removeAsset('${a.id}')" title="Supprimer cet actif"><i class="fas fa-trash"></i></button>
+        `;
+        card.appendChild(actions);
+        assetListEl.appendChild(card);
+      });
+      // Expose for inline edit/del handlers
+      window.editAsset = editAsset;
+      window.duplicateAsset = duplicateAsset;
+      window.removeAsset = removeAsset;
+    }
+
+    function renderRealEstate(){
+      // Minimal rendering for existing real estate items
+      const container = document.getElementById('realEstateList');
+      container.innerHTML = '';
+      if (!realEstate.length){
+        container.innerHTML = `<div class="text-sm text-gray-500">Aucun bien immobilier enregistré.</div>`;
+        return;
+      }
+      realEstate.forEach((r, i) => {
+        const valNet = (r.estimation || 0) - (r.remainingLoan || 0);
+        const card = document.createElement('div');
+        card.className = 'glass-card p-4';
+        card.innerHTML = `
+          <div class="flex items-center justify-between">
+            <div class="font-semibold">${escapeHtml(r.name)}</div>
+            <div class="text-sm">${formatEuro(valNet)} nette</div>
+          </div>
+          <div class="text-xs text-gray-500">Estimation: ${formatEuro(r.estimation || 0)} • Emprunt: ${formatEuro(r.remainingLoan || 0)} • Loyers nets: ${formatEuro(r.rentNet || 0)}</div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // Add asset
+    function onAddAsset(e){
+      e.preventDefault();
+      const name = assetNameEl.value.trim();
+      const type = assetTypeEl.value;
+      const value = parseFloat(assetValueEl.value);
+      const targetValue = parseFloat(assetTargetValueEl.value) || 0;
+      const date = assetDateEl.value ? new Date(assetDateEl.value) : null;
+      const yieldRate = parseFloat(assetYieldEl.value) || 0;
+      const risk = assetRiskEl.value;
+      const currency = assetCurrencyEl.value || 'EUR';
+      if (!name || isNaN(value) || value < 0) {
+        alert('Veuillez saisir un nom et une valeur actuelle positives.');
+        return;
+      }
+      // Enforce no prefill, date optional but recommended
+      const asset = {
+        id: 'a' + (Date.now()),
+        name, type, value, targetValue, targetPct: 0,
+        dateAcquired: date ? date.toISOString().slice(0,10) : null,
+        yield: yieldRate, risk, currency,
+        history: []
+      };
+      // initial history with current value at acquisition date (or today)
+      const histDate = (date && !isNaN(date)) ? date : new Date();
+      const histDateStr = histDate.toISOString().slice(0,10);
+      asset.history.push({ date: histDateStr, value: value });
+      assets.push(asset);
+      localStorage.setItem(KEY_ASSETS, JSON.stringify(assets));
+      renderAssets();
+      updateOverview();
+      assetNameEl.value = '';
+      assetValueEl.value = '';
+    }
+
+    // Duplicate
+    function onDuplicateAsset(){
+      if (assets.length === 0) return;
+      const base = assets[0];
+      const dup = JSON.parse(JSON.stringify(base));
+      dup.id = 'a' + Date.now();
+      dup.name = base.name + ' (copie)';
+      // push initial history with same value
+      dup.history = (base.history && base.history.length) ? base.history.map(h => Object.assign({}, h)) : [{date: new Date().toISOString().slice(0,10), value: base.value}];
+      assets.push(dup);
+      localStorage.setItem(KEY_ASSETS, JSON.stringify(assets));
+      renderAssets();
+    }
+
+    // Remove
+    function removeAsset(id){
+      assets = assets.filter(a => a.id !== id);
+      localStorage.setItem(KEY_ASSETS, JSON.stringify(assets));
+      renderAssets();
+      updateOverview();
+    }
+
+    // Edit
+    function editAsset(id){
+      const a = assets.find(x => x.id === id);
+      if (!a) return;
+      const newName = prompt('Nom de l’actif', a.name) || a.name;
+      const newValue = parseFloat(prompt('Valeur actuelle (€)', a.value) || a.value);
+      if (!isNaN(newValue)) a.value = newValue;
+      a.name = newName;
+      // store a change in history
+      a.history.push({ date: new Date().toISOString().slice(0,10), value: a.value });
+      localStorage.setItem(KEY_ASSETS, JSON.stringify(assets));
+      renderAssets();
+      updateOverview();
+    }
+
+    // Clear all (modal)
+    function openClearModal(){
+      confirmModal.style.display = 'flex';
+    }
+    cancelDelete.addEventListener('click', ()=> confirmModal.style.display = 'none');
+    confirmDelete.addEventListener('click', ()=>{
+      assets = [];
+      history = [];
+      localStorage.removeItem(KEY_ASSETS);
+      localStorage.removeItem(KEY_HISTORY);
+      renderAssets();
+      renderCharts();
+      confirmModal.style.display = 'none';
+      updateOverview();
+    });
+
+    // Monthly recording
+    function recordMonthlyBtnListener(){
+      recordMonthlyBtn?.addEventListener('click', recordMonthlyValue);
+    }
+
+    function _getMonthKey(date){
+      const d = new Date(date);
+      return d.getFullYear() + '-' + ('0' + (d.getMonth()+1)).slice(-2) + '-01';
+    }
+
+    function recordMonthlyValue(){
+      // Determine the target date: 1st of current month; if before Oct 2025, set to Oct 1 2025
+      const now = new Date();
+      let targetDate;
+      const oct2025 = new Date(2025, 9, 1); // Oct 1 2025
+      if (now < oct2025) targetDate = oct2025;
+      else targetDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      const targetISO = targetDate.toISOString().slice(0,10);
+
+      // For each asset, push a history entry for this date with its current value
+      assets.forEach(a => {
+        const last = (a.history && a.history.length) ? a.history[a.history.length-1].date : null;
+        // Avoid duplicating same month
+        const hasMonth = a.history && a.history.some(h => h.date === targetISO);
+        const valueToRecord = (a.history && a.history.length) ? a.history[a.history.length-1].value : a.value || 0;
+        if (!hasMonth){
+          a.history.push({ date: targetISO, value: valueToRecord });
+        }
+      });
+      // Also create portfolio total history
+      const totalForMonth = assets.reduce((sum, a) => {
+        const last = a.history && a.history.length ? a.history[a.history.length-1].value : a.value;
+        return sum + (typeof last === 'number' ? last : 0);
+      }, 0);
+      history.push({ date: targetISO, total: totalForMonth });
+      localStorage.setItem(KEY_ASSETS, JSON.stringify(assets));
+      localStorage.setItem(KEY_HISTORY, JSON.stringify(history));
+
+      renderAssets();
+      renderCharts();
+      updateOverview();
+    }
+
+    function formatEuro(n){
+      if (typeof n !== 'number' || isNaN(n)) n = 0;
+      return new Intl.NumberFormat('fr-FR', {style:'currency', currency:'EUR', maximumFractionDigits:0}).format(n);
+    }
+
+    function formatPercent(n){
+      return (n ? n.toFixed(0) + '%' : '0%');
+    }
+
+    function escapeHtml(s){
+      return String(s).replace(/[&<>"']/g, (c) => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+
+    function typeColor(type){
+      switch (type){
+        case 'Immobilier physique net': return '#1e3a8a';
+        case 'SCPI': return '#3b82f6';
+        case 'Actions': return '#e11d48';
+        case 'ETF': return '#f472b6';
+        case 'Cryptomonnaies': return '#4f46e5';
+        case 'Exotique': return '#8b5cf6';
+        case 'Private Equity': return '#374151';
+        case 'Obligation': return '#10b981';
+        case 'OR': return '#d97706';
+        case 'Revenus Passifs': return '#06b6d4';
+        default: return '#64748b';
+      }
+    }
+
+    // Update overview (net worth, charts)
+    function updateOverview(){
+      // Compute total net worth from latest values
+      const total = assets.reduce((sum, a) => {
+        const latest = (a.history && a.history.length) ? a.history[a.history.length-1].value : a.value || 0;
+        return sum + (typeof latest === 'number' ? latest : 0);
+      }, 0);
+      // push to history if first time? We'll just display
+      netWorthDisplay.textContent = formatEuro(total) + ' / 1 000 000 €';
+      // Gauge fill percentage
+      const pct = Math.min(100, Math.round((total / 1000000) * 100));
+      netWorthGauge.style.setProperty('--p', pct);
+      netWorthGaugeLabel.textContent = pct + '%';
+      // Monthly evolution arrow
+      const lastTotal = history.length ? history[history.length-1].total : 0;
+      const diff = total - lastTotal;
+      const sign = diff >= 0 ? '+' : '';
+      monthlyEvolutionEl.textContent = sign + formatEuro(Math.abs(diff) * 1) + ' (monthly)';
+      // Diversification score (mock)
+      const diversification = Math.min(100, Math.max(0, Math.round(40 + assets.length * 6)));
+      DiversifGauge.style.setProperty('--p', diversification);
+      DiversifLabel.textContent = diversification + '%';
+      DiversifGauge.style.setProperty('--grad', diversification > 60 ? '#28a745' : diversification > 40 ? '#f59e0b' : '#ef4444');
+      allocationChart?.update?.();
+      evolutionChart?.update?.();
+    }
+
+    // Chart rendering
+    function renderCharts(){
+      // Build monthly series: months from Oct 2025 to now
+      const months = [];
+      const totals = [];
+      // Build a map of date->total
+      const monthsSet = new Set(history.map(h => h.date));
+      // Ensure chronological order
+      const sortedDates = Array.from(monthsSet).sort();
+      sortedDates.forEach(d => {
+        const t = history.find(h => h.date === d)?.total ?? assets.reduce((s, a) => {
+          const last = a.history?.length ? a.history[a.history.length-1].value : a.value || 0;
+          return s + (typeof last === 'number' ? last : 0);
+        }, 0);
+        months.push(d);
+        totals.push(t);
+      });
+
+      // If no data yet, seed with empty
+      if (!evolutionChart){
+        evolutionChart = new Chart(evolutionChartCtx, {
+          type: 'line',
+          data: {
+            labels: months.length ? months : ['Oct-2025'],
+            datasets: [{
+              label: 'Patrimoine Net',
+              data: totals.length ? totals : [0],
+              borderColor: '#4a6bff',
+              backgroundColor: 'rgba(74,107,255,.15)',
+              fill: true,
+              tension: 0.25
+            }]
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: { x: { display: true, title: { display: true, text: 'Date' } }, y: { beginAtZero: true, ticks: { callback: (v)=> formatEuro(v) } } },
+            animation: { duration: 800 },
+          }
+        });
+      } else {
+        evolutionChart.data.labels = months;
+        evolutionChart.data.datasets[0].data = totals;
+        evolutionChart.update();
+      }
+
+      // Allocation by category (donut)
+      const byType = assets.reduce((acc, a) => {
+        acc[a.type] = (acc[a.type] || 0) + (a.value || 0);
+        return acc;
+      }, {});
+      const labels = Object.keys(byType);
+      const data = labels.map(l => byType[l]);
+      const colors = labels.map(t => typeColor(t));
+
+      if (!allocationChart){
+        allocationChart = new Chart(allocationChartCtx, {
+          type: 'doughnut',
+          data: {
+            labels, datasets: [{
+              data, backgroundColor: colors
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false, cutout: '40%',
+            plugins: { tooltip: { callbacks: { label: (ctx)=> ctx.label + ': ' + formatEuro(ctx.raw) } } }
+          }
+        });
+      } else {
+        allocationChart.data.labels = labels;
+        allocationChart.data.datasets[0].data = data;
+        allocationChart.data.datasets[0].backgroundColor = colors;
+        allocationChart.update();
+      }
+
+      // Passive income vs expenses mini chart
+      // Simple dummy dataset: sum of assets with type 'Revenus Passifs'
+      const passiveTotal = assets.filter(a => a.type === 'Revenus Passifs').reduce((s, a)=> s + (a.value||0), 0);
+      const expenseTotal =  (assets.reduce((s, a)=> s + (a.value||0), 0) * 0.2) | 0; // approx
+      if (!passiveChart){
+        passiveChart = new Chart(passiveChartCtx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Revenus Passifs', 'Dépenses estimées'],
+            datasets: [{ data: [passiveTotal, expenseTotal], backgroundColor: ['#28a745', '#f87171'] }]
+          },
+          options: { plugins: { legend: { position: 'bottom' } } }
+        });
+      } else {
+        passiveChart.data.datasets[0].data = [passiveTotal, expenseTotal];
+        passiveChart.update();
+      }
+    }
+
+    // Real-time-ish helpers
+    function formatDate(d){
+      try{ return new Date(d).toLocaleDateString(); } catch(e){ return d; }
+    }
+
+    // Simple reset
+    function resetAll(){
+      if (confirm('Réinitialiser TrackWealth localement ?')) {
+        localStorage.clear();
+        assets = []; realEstate = []; history = [];
+        renderAssets(); renderRealEstate(); renderCharts(); updateOverview();
+      }
+    }
+
+    // Helpers for monthly constraints
+    // Ensure first of month dates
+    function firstOfMonth(d){
+      const date = new Date(d);
+      return new Date(date.getFullYear(), date.getMonth(), 1).toISOString().slice(0,10);
+    }
+
+  </script>
+
+  <!-- End of App -->
+</body>
+</html>
